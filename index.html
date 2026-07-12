@@ -2,22 +2,235 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>PyScriptのテスト</title>
-    <!-- PyScriptのCSSとJavaScriptを読み込む -->
-    <link rel="stylesheet" href="https://pyscript.net" />
-    <script type="module" src="https://pyscript.net"></script>
+    <title>JavaScript ターミナルセル</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f6fa; padding: 20px; }
+        .container { max-width: 700px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 120px; font-family: 'Courier New', Courier, monospace; font-size: 14px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; background: #fafafa; }
+        .controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+        button { background: #3498db; color: white; border: none; padding: 10px 20px; font-size: 14px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #2980b9; }
+        pre { background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; min-height: 50px; white-space: pre-wrap; word-wrap: break-word; }
+        .info { font-size: 12px; color: #7f8c8d; }
+        .error { color: #ff7675; }
+    </style>
 </head>
 <body>
-    <h1>こんにちは、PyScript!</h1>
+
+<div class="container">
+    <h2>JavaScript 実行セル</h2>
     
-    <!-- py-scriptタグの中にPythonコードを書く -->
-    <py-script>
-        print("Hello, Python from HTML!")
+    <!-- 入力セル -->
+    <textarea id="yourcode" autocomplete="off" autofocus placeholder="import hashlib
+import random
+import string
+import fs from 'fs';
+import readline from 'readline';
+
+const SALT_CHARS = (string.asciiLowercase + string.digits).split('');
+
+function generateBaseKey(k1, k2, k3) {
+    return hashlib.createHash('sha256').update(k1 + k2 + k3).digest();
+}
+
+function fastEncrypt(plainText, baseKey) {
+    const textBytes = Buffer.from(plainText, 'utf-8');
+    const encryptedTokens = [];
+    
+    const rc = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    
+    for (const b of textBytes) {
+        const totalLength = Math.floor(Math.random() * (12 - 6 + 1)) + 6;
+        const lengthMarker = totalLength.toString(16);
         
-        # 足し算の計算結果を出力
-        a = 10
-        b = 20
-        print(f"計算結果: {a + b}")
-    </py-script>
+        const saltLen = totalLength - 1 - 2;
+        const saltBytes = Buffer.from(Array.from({ length: saltLen }, () => rc(SALT_CHARS)).join(''));
+        
+        const charKey = hashlib.createHash('sha256').update(Buffer.concat([baseKey, saltBytes])).digest();
+        
+        const encryptedByte = b ^ charKey[0];
+        
+        const token = lengthMarker + saltBytes.toString('utf-8') + encryptedByte.toString(16).padStart(2, '0');
+        encryptedTokens.push(token);
+    }
+    
+    return encryptedTokens.join('');
+}
+
+function fastDecrypt(cipherText, baseKey) {
+    const decryptedBytes = [];
+    let idx = 0;
+    const cipherLen = cipherText.length;
+
+    try {
+        while (idx < cipherLen) {
+            const totalLength = parseInt(cipherText[idx], 16);
+            
+            const salt = Buffer.from(cipherText.slice(idx + 1, idx + totalLength - 2), 'utf-8');
+            const hexCode = cipherText.slice(idx + totalLength - 2, idx + totalLength);
+            
+            const charKey = hashlib.createHash('sha256').update(Buffer.concat([baseKey, salt])).digest();
+            const encryptedByte = parseInt(hexCode, 16);
+            
+            decryptedBytes.push(encryptedByte ^ charKey[0]);
+            
+            idx += totalLength;
+        }
+        return Buffer.from(decryptedBytes).toString('utf-8');
+    } catch (e) {
+        return "【エラー】復号失敗。鍵が違うかデータが破損しています。";
+    }
+}
+
+async function handleFileOperations(mode, baseKey) {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    rl.question("対象のファイル名（例: data.txt）を入力してください: ", async (filePath) => {
+        if (mode === 'C') {
+            if (!fs.existsSync(filePath)) {
+                console.log("エラー: 指定されたファイルが存在しません。");
+                rl.close();
+                return;
+            }
+
+            const plainText = fs.readFileSync(filePath, 'utf-8');
+            console.log("暗号化処理中...");
+            const cipherText = fastEncrypt(plainText, baseKey);
+            
+            if (!(5 <= cipherText.length && cipherText.length <= 26)) {
+                console.log(`【警告】暗号化後の長さ（${cipherText.length}文字）が制限（5〜26文字）を超えました。`);
+                console.log("※元のテキストをさらに短くする必要があります。");
+                rl.close();
+                return;
+            }
+            
+            const outPath = filePath + ".enc";
+            fs.writeFileSync(outPath, cipherText, 'utf-8');
+            console.log(`高速保存完了: ${outPath} (暗号文: ${cipherText})`);
+        } else if (mode === 'D') {
+            if (!fs.existsSync(filePath)) {
+                console.log("エラー: 指定されたファイルが存在しません。");
+                rl.close();
+                return;
+            }
+
+            const cipherText = fs.readFileSync(filePath, 'utf-8').trim();
+            
+            if (!(5 <= cipherText.length && cipherText.length <= 26)) {
+                console.log(`【エラー】ファイル内の暗号文が5〜26文字の範囲外です（現在${cipherText.length}文字）。`);
+                rl.close();
+                return;
+            }
+            
+            console.log("復号処理中...");
+            const plainText = fastDecrypt(cipherText, baseKey);
+            
+            const outPath = filePath.replace(".enc", "") + ".dec.txt";
+            fs.writeFileSync(outPath, plainText, 'utf-8');
+            console.log(`高速復号完了: ${outPath} (復号結果: ${plainText})`);
+        }
+        rl.close();
+    });
+}
+
+async function main() {
+    console.log("=== 超高速・多パターン暗号化システム（ファイルロード対応） ===");
+    
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+    
+    rl.question("1つ目のキーを入力してください: ", (key1) => {
+        rl.question("2つ目のキーを入力してください: ", (key2) => {
+            rl.question("3つ目のキーを入力してください: ", async (key3) => {
+                const baseKey = generateBaseKey(key1, key2, key3);
+                
+                rl.question("decode or codex? (D/C): ", async (mode) => {
+                    if (['C', 'D'].includes(mode.toUpperCase())) {
+                        await handleFileOperations(mode.toUpperCase(), baseKey);
+                    } else {
+                        console.log("エラー: 'C' または 'D' を入力してください。");
+                    }
+                    rl.close();
+                });
+            });
+        });
+    });
+}
+
+main();">
+// console.log の代わりに「print」関数が使えます
+print("Hello JavaScript!");
+
+let score = 95;
+if (score >= 90) {
+    print(`評価: A (${score}点)`);
+}
+    </textarea>
+
+    <div class="controls">
+        <button type="button" onclick="runJS()">実行する (Shift+Enter)</button>
+        <span class="info">※ダウンロード不要、完全オフラインで即座に動作します</span>
+    </div>
+
+    <h3>実行結果（出力）:</h3>
+    <!-- 出力先 -->
+    <pre id="output">ここに結果が表示されます</pre>
+</div>
+
+<script type="text/javascript">
+// 画面に文字を出力するためのヘルパー関数
+function print(...args) {
+    const outputElement = document.getElementById("output");
+    // オブジェクトなどの場合は文字列に変換して出力
+    const formattedArgs = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
+    );
+    outputElement.textContent += formattedArgs.join(' ') + '\n';
+}
+
+function runJS() {
+    const code = document.getElementById("yourcode").value;
+    const outputElement = document.getElementById("output");
+    
+    // 出力を一旦クリア
+    outputElement.textContent = ''; 
+    
+    try {
+        // 安全に実行するために、簡易的なスコープ内で eval を実行
+        // code 内で `print` が呼び出せるように環境を整える
+        const executeCode = new Function('print', `
+            try {
+                ${code}
+            } catch (err) {
+                throw err;
+            }
+        `);
+        
+        executeCode(print);
+        
+        // 何も出力されなかった場合の処理
+        if (outputElement.textContent === '') {
+            outputElement.innerHTML = "<span style='color:#7f8c8d;'>（コードは正常に実行されましたが、出力はありませんでした）</span>";
+        }
+    } catch (err) {
+        // エラー発生時は赤字で表示
+        outputElement.innerHTML = "<span class='error'>Error: " + err.message + "</span>";
+    }
+}
+
+// Shift + Enter で実行できるようにするキーイベント
+document.getElementById("yourcode").addEventListener("keydown", function(e) {
+    if (e.shiftKey && e.keyCode === 13) {
+        e.preventDefault(); // 改行を防ぐ
+        runJS();
+    }
+});
+</script>
+
 </body>
 </html>
